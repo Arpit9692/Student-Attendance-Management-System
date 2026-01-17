@@ -247,3 +247,206 @@ public class AdminServiceImpl implements AdminService {
         if (percentage >= 60) return "Average";
         return "Needs Attention";
     }
+
+    // ... (All other CRUD methods remain unchanged)
+    @Override
+    public List<CourseResponse> getAllCourses() {
+        return courseRepository.findAllActiveWithDetails().stream() 
+                .map(course -> {
+                    String teacherName = (course.getTeacher() != null) ? course.getTeacher().getName() : "-";
+                    String className = (course.getClassEntity() != null) ? course.getClassEntity().getClassName() : "-";
+                    String section = (course.getClassEntity() != null) ? course.getClassEntity().getSection() : "-";
+                    String shortName = (course.getShortName() != null) ? course.getShortName() : "-";
+
+                    return new CourseResponse(
+                        course.getId(),
+                        course.getCourseCode(),
+                        course.getCourseName(),
+                        shortName, 
+                        course.getDescription(),
+                        course.getTeacher() != null ? course.getTeacher().getId() : null,
+                        teacherName, 
+                        course.getClassEntity() != null ? course.getClassEntity().getId() : null,
+                        className, 
+                        section, 
+                        course.getDayOfWeek(),
+                        course.getStartTime(),
+                        course.getEndTime(),
+                        course.getClassRoom()
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public CourseResponse createCourse(CourseRequest request) {
+        Course course = new Course();
+        course.setCourseCode(request.getCourseCode());
+        course.setCourseName(request.getCourseName());
+        course.setShortName(request.getShortName()); 
+        course.setDescription(request.getDescription());
+        course.setDayOfWeek(request.getDayOfWeek());
+        course.setClassRoom(request.getClassRoom());
+        course.setStartTime(request.getStartTime());
+        course.setEndTime(request.getEndTime());
+        course.setActive(true); 
+
+        Teacher teacher = teacherRepository.findById(request.getTeacherId())
+                .orElseThrow(() -> new RuntimeException("Teacher not found"));
+        course.setTeacher(teacher);
+
+        ClassEntity classEntity = classRepository.findById(request.getClassId())
+                .orElseThrow(() -> new RuntimeException("Class not found"));
+        course.setClassEntity(classEntity);
+
+        if (request.getStudentIds() != null && !request.getStudentIds().isEmpty()) {
+            List<Student> selectedStudents = studentRepository.findAllById(request.getStudentIds());
+            course.setStudents(new HashSet<>(selectedStudents));
+        }
+
+        Course saved = courseRepository.save(course);
+        return buildCourseResponse(saved, teacher, classEntity);
+    }
+
+    @Override
+    @Transactional
+    public CourseResponse updateCourse(Long courseId, CourseRequest request) {
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+
+        course.setCourseCode(request.getCourseCode());
+        course.setCourseName(request.getCourseName());
+        course.setShortName(request.getShortName());
+        course.setDescription(request.getDescription());
+        course.setDayOfWeek(request.getDayOfWeek());
+        course.setClassRoom(request.getClassRoom());
+        course.setStartTime(request.getStartTime());
+        course.setEndTime(request.getEndTime());
+
+        Teacher teacher = teacherRepository.findById(request.getTeacherId())
+                .orElseThrow(() -> new RuntimeException("Teacher not found"));
+        course.setTeacher(teacher);
+
+        ClassEntity classEntity = classRepository.findById(request.getClassId())
+                .orElseThrow(() -> new RuntimeException("Class not found"));
+        course.setClassEntity(classEntity);
+        
+        if (request.getStudentIds() != null) {
+            List<Student> selectedStudents = studentRepository.findAllById(request.getStudentIds());
+            course.setStudents(new HashSet<>(selectedStudents));
+        }
+
+        Course saved = courseRepository.save(course);
+        return buildCourseResponse(saved, teacher, classEntity);
+    }
+
+    private CourseResponse buildCourseResponse(Course saved, Teacher teacher, ClassEntity classEntity) {
+        return new CourseResponse(
+                saved.getId(),
+                saved.getCourseCode(),
+                saved.getCourseName(),
+                (saved.getShortName() != null) ? saved.getShortName() : "-",
+                saved.getDescription(),
+                teacher.getId(),
+                teacher.getName(),
+                classEntity.getId(),
+                classEntity.getClassName(),
+                classEntity.getSection(),
+                saved.getDayOfWeek(),
+                saved.getStartTime(),
+                saved.getEndTime(),
+                saved.getClassRoom()
+        );
+    }
+
+    @Override
+    @Transactional
+    public void deleteCourse(Long courseId) {
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+        course.setActive(false);
+        courseRepository.save(course);
+    }
+
+    @Override
+    @Transactional
+    public UserInfoResponse createTeacher(SignupRequest signupRequest) {
+        signupRequest.setRole("TEACHER");
+        return authService.registerUser(signupRequest);
+    }
+
+    @Override
+    public List<UserInfoResponse> getAllTeachers() {
+        return teacherRepository.findByActiveTrue()
+                .stream()
+                .map(this::convertToUserInfoResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public UserInfoResponse getTeacherById(Long teacherId) {
+        Teacher teacher = teacherRepository.findByIdAndActiveTrue(teacherId)
+                .orElseThrow(() -> new RuntimeException("Teacher not found"));
+        return convertToUserInfoResponse(teacher);
+    }
+
+    @Override
+    @Transactional
+    public UserInfoResponse updateTeacher(Long teacherId, SignupRequest signupRequest) {
+        Teacher teacher = teacherRepository.findByIdAndActiveTrue(teacherId)
+                .orElseThrow(() -> new RuntimeException("Teacher not found"));
+
+        teacher.setName(signupRequest.getName());
+        teacher.setPhone(signupRequest.getPhone());
+        teacher.setDepartment(signupRequest.getDepartment());
+
+        if (signupRequest.getPassword() != null && !signupRequest.getPassword().isBlank()) {
+            teacher.setPassword(passwordEncoder.encode(signupRequest.getPassword()));
+        }
+
+        return convertToUserInfoResponse(teacherRepository.save(teacher));
+    }
+
+    @Override
+    @Transactional
+    public void deleteTeacher(Long teacherId) {
+        Teacher teacher = teacherRepository.findById(teacherId)
+                .orElseThrow(() -> new RuntimeException("Teacher not found"));
+        teacher.setActive(false);
+        teacherRepository.save(teacher); 
+    }
+
+    @Override
+    public List<StudentResponse> getAllStudents() {
+        return studentRepository.findByActiveTrue().stream()
+                .map(student -> new StudentResponse(
+                        student.getId(),
+                        student.getName(),
+                        student.getEmail(),
+                        student.getPhone(),
+                        student.getRollNumber(),
+                        student.getParentEmail(),
+                        student.getClassEntity() != null ? student.getClassEntity().getId() : null,
+                        student.getClassEntity() != null ? student.getClassEntity().getClassName() : null,
+                        student.getClassEntity() != null ? student.getClassEntity().getSection() : null
+                ))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public StudentResponse getStudentById(Long studentId) {
+         Student student = studentRepository.findByIdAndActiveTrue(studentId)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+        return new StudentResponse(
+                student.getId(),
+                student.getName(),
+                student.getEmail(),
+                student.getPhone(),
+                student.getRollNumber(),
+                student.getParentEmail(),
+                student.getClassEntity() != null ? student.getClassEntity().getId() : null,
+                student.getClassEntity() != null ? student.getClassEntity().getClassName() : null,
+                student.getClassEntity() != null ? student.getClassEntity().getSection() : null
+        );
+    }
